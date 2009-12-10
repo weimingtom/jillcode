@@ -1,0 +1,399 @@
+<?xml version="1.0" encoding="UTF-8"?>
+
+<!DOCTYPE html PUBLIC "-//W3C//DTD XHTML 1.0 Transitional//EN" "DTD/xhtml1-transitional.dtd">
+
+<html xmlns="http://www.w3.org/1999/xhtml" xml:lang="en" lang="en">
+
+<head>
+
+<title>Build Process</title>
+
+</head>
+
+<body bgcolor="#FFFFFF" text="#000000" link="#000099" vlink="#660066" alink="#FF0000">
+
+<div align="center">
+
+<p>Java Implementation of Lua Language</p>
+
+<hr />
+
+<h1>Build Process</h1>
+
+<address>
+<a href="mailto:drj@ravenbrook.com">David Jones</a>,
+<a href="http://www.ravenbrook.com/">Ravenbrook Limited</a>,
+2006-06-20
+</address>
+
+</div>
+
+<h2><a id="section-1" name="section-1">1. Introduction</a></h2>
+
+<p>
+This document describes the build process and documents the particular
+procedure used in Jill.
+</p>
+
+<p>The readership of this document is anyone interested in the
+project.</p>
+
+<h2><a id="section-2" name="section-2">2. Overview</a></h2>
+
+<p>
+The vast majority of the software for the core of Jill (disregarding the
+build materials and the test materials for now) is in Java.
+</p>
+
+<p>
+The build procedure is kept as simple as possible.  A certain amount of
+complexity is required by the toolchains that are used for the JME
+environments.
+</p>
+
+<p>
+In terms of getting Java code running on a device it goes like this:
+</p>
+
+<ul>
+<li>
+Java source is compiled into <code>.class</code> files.
+</li>
+
+<li>
+Compiled class files and 3rd party class files (for example, j2meunit if
+building a test MIDlet) are assembled into their final positions in a package
+hierarchy.  Other files are assembled into this hierarchy too.
+</li>
+
+<li>
+At this stage an obfuscator could be run.  We currently don't do this.
+</li>
+
+<li>
+A JME preverification tool is run (this annotates the class files so
+that they can be securely loaded by the cut-down KVM used by JME).
+</li>
+
+<li>
+A jar file is built.  In principle this jar file can be used by any JME
+device, but that hasn't been tested.
+</li>
+
+<li>
+The jar file is converted to a BlackBerry <code>.cod</code> file using a
+tool from the BlackBerry SDK.  This <code>.cod</code> file is suitable
+to loading onto a BlackBerry device.
+</li>
+
+</ul>
+
+<p>
+Java binaries are not the only thing produced by the build process.
+Javadoc documentation is compiled from the Java source using Sun's
+javadoc tool.  A code style report (generated using Checkstyle) can also
+be generated.
+</p>
+
+<p>
+Most of the build procedure is captured in an Ant build file.  This file
+also has procedures for running tests, and loading onto a real
+BlackBerry device (neither of which are strictly, building).
+</p>
+
+<h2 id="section-3">3. Prerequisites</h2>
+
+<p>
+In general you need some way of building and running JME applications.
+</p>
+
+<ul>
+
+<li>
+<p>
+Java SDK.
+</p>
+<p>Versions of Sun's 1.4.2, 1.5.0_06, 1.5.0_07 have been used.  The BlackBerry
+JDE 4.1 claims to require Java SDK 1.5.  On Windows Sun's Java SDK has
+been used, on Mac OS X the Java SDK supplied by Apple with Developer
+Tools has been used.
+</p>
+<p>
+On Windows, download Sun's 1.5 Java SDK (without NetBeans as it is not
+necessary) from the usual place,
+<a
+href="http://java.sun.com/javase/downloads/">http://java.sun.com/javase/downloads/</a>,
+and install according to Sun's instructions.  Note that the external
+version number is JDK 5.0.
+</p>
+
+<p>
+Ant requires access to various JDK tools.  It is recommended that
+<code>JAVA_HOME</code> is set appropriately.
+</p>
+
+</li>
+
+<li>
+<p>
+Ant.
+</p>
+
+<p>
+Version 1.6.5 is used, but it should be possible to use older (and
+newer?) versions as well.  The environment variable
+<code>ANT_HOME</code> may need to
+be set.  On Mac OS X 10.4 (and I think 10.3) the Ant that comes with the
+Developer Tools can be used (a link to it is created in
+<code>/usr/bin/ant</code>, so your <code>PATH</code> should not need
+changing).  It is recommended that Ant be on your <code>PATH</code>.
+</p>
+
+<p>
+Ant is available in the project import directory:
+<code>import/2005-06-02/ant/</code> or can be downloaded from <a
+href="http://ant.apache.org/">http://ant.apache.org/</a>.
+Ant can be "installed" by unzipping to
+any directory.
+</li>
+
+<li>
+<p>
+A JME SDK.
+</p>
+<p>
+On Mac OS X mpowerplayer (mpp) has been used.  On Windows XP, the BlackBerry
+SDK 4.1 has been used.  As long as you can build and run JME
+applications then any SDK should be okay.  Currently the Ant build file,
+<code>build.xml</code>, assumes it knows where the JME tools and class
+files can be found.  If you place them somewhere else, you can set
+<code>build.xml</code> straight by defining some properties in a
+<code>buildprop.local</code> file.  See <a href="#section-4">section
+4</a>.
+</p>
+<p>
+<code>build.xml</code> currently requires that the tools it needs are
+found on your <code>PATH</code>.  In particular, if using the BlackBerry
+JDE then its bin directory, typically <code>c:\Program Files\Research
+in Motion\BlackBerry JDE 4.1.0\bin</code>, should be on your
+<code>PATH</code>.
+</p>
+<dl>
+  <dt>mpowerplayer</dt>
+  <dd>A version of this is available in the <code>import/</code>
+  directory.  Currently <code>build.xml</code> assumes that mpp is being
+  used on Mac OS X and assumes that it has been unzipped into
+  <code>/usr/local/mpp-sdk/</code>.  Because it is distributed as a zip
+  file the preverify tool must be <code>chmod</code>ed before it can be
+  used.  <code>chmod +x osx/preverify/preverify</code>.  Otherwise you
+  get errors from ant like:
+  <code>/Users/drj/info.ravenbrook.com/project/jili/master/build.xml:172:
+  Execute failed: java.io.IOException:
+  /usr/local/mpp-sdk/osx/preverify/preverify: cannot execute</code>.
+  </dd>
+
+  <dt>BlackBerry JDE</dt>
+  <dd>The BlackBerry JDE is downloaded from <a
+  href="http://www.blackberry.com/developers/downloads/index.shtml">http://www.blackberry.com/developers/downloads/index.shtml</a>
+  and installed according to the instructions.
+  </dd>
+</dl>
+</li>
+
+<li>
+Checkstyle.  Optional.  In <code>import/</code>.
+</li>
+
+<li>
+j2meunit.  Already included in source code control.
+</li>
+
+</ul>
+
+<h2 id="section-4">4. Using Ant</h2>
+
+<p>
+This section isn't about how to use (and configure) Ant in general, it's
+about how to use Ant in the Jill project.
+</p>
+
+<p>
+As is standard, the command <code>ant -projecthelp</code> briefly
+documents the public targets.  There are other targets, but they're
+considered either internal (for example used to express internal
+dependencies) or only of interest to staff hacking around in the build
+file.
+</p>
+
+<p>
+The build file is configurable with Ant properties.  Properties are
+defined and used to specify the locations of 3rd party <code>.jar</code>
+files and other things.  Any property defined in <code>build.xml</code>
+can be overriden by creating a property in a file named
+<code>buildprop.local</code>.  The <code>buildprop.local</code> file is
+not supplied as part of the managed sources (it's not in source code
+control), and Ant will not complain if it isn't present.  It's intended
+to be created by any user that needs it (to override a property).
+</p>
+
+<p>
+It is not currently possible to use <code>buildprop.local</code>, or any
+similar feature, to define properties to have different values on
+different platforms.  Thus, sharing a single build source tree across
+different platforms, via NFS or Samba or similar, is not recommended.
+</p>
+
+<p>Here are the properties that you might want to change:</p>
+
+<dl>
+
+<dt>rim</dt>
+  <dd>
+  <p>
+  Defaults to <code>C:/Program Files/Research In
+  Motion/BlackBerry JDE 4.1.0</code>.
+  </p>
+
+  <p>
+  This defines the location of the RIM BlackBerry JDE.  This is
+  currently only intended to be used on Windows.
+  </p>
+  </dd>
+
+<dt>mpp</dt>
+  <dd>
+  <p>
+  Defaults to <code>/usr/local/mpp-sdk</code>.
+  </p>
+
+  <p>
+  This defines the location of the mpowerplayer sdk.  This is currently
+  only intended to be used on Mac OS X.
+  </p>
+  </dd>
+
+<dt>sun-wtk</dt>
+  <dd>
+  <p>
+  Defaults to <code>/home/markt/software/javas/j2me-2.2</code> (!).
+  This is currently only intended to be used on MarkT's laptop.
+  </p>
+  </dd>
+
+<dt>j2meunit</dt>
+  <dd>
+  <p>
+  Defaults to <code>lib/j2meunit.jar</code> (that is, a location within
+  the project hierarchy).
+  </p>
+
+  <p>
+  Specifies the location of the <code>j2meunit.jar</code> jar file from
+  j2meunit.  For convenience this has been placed in the expected
+  location under source code control.  You'll only need to fiddle with
+  this if you have a perverse Perforce client map or you deliberately
+  want to use a different version of j2meunit.
+  </p>
+  </dd>
+
+<dt>checkstyle</dt>
+  <dd>
+  <p>
+  Defaults to <code>lib/checkstyle-all-4.1.jar</code> (that is, a
+  location within the project hierarchy).
+  </p>
+
+  <p>
+  Specifies the location of the <code>.jar</code> file that defines the
+  Checkstyle Ant task.  For your annoyance this hasn't been placed in
+  the expected location under source code control.  You'll need to copy
+  it here (the <code>.tar.gz</code> for Checkstyle can be found in
+  <code>import/</code>.
+  </p>
+  </dd>
+
+<dt>which.jme</dt>
+  <dd>
+  <p>
+  Default is platform dependent.
+  </p>
+
+  <p>
+  Specifies which JME SDK to use.  One of:
+  </p>
+
+  <dl>
+  <dt>mpp</dt><dd>mpowerplayer.  The default on Mac OS X.</dd>
+  <dt>rim</dt><dd>RIM BlackBerry JDE.  The default on Windows.</dd>
+  <dt>sun-wtk</dt><dd>Sun Java Wireless Toolkit.  The default on Linux
+  (actually, any Unix that's not Mac OS X).</dd>
+  </dl>
+
+  <p>
+  Like other properties, this can be overriden in
+  <code>buildprop.local</code>.  Useful if you want to use mpowerplayer
+  on Linux, or the Sun Java Wireless Toolkit on Windows.
+  </p>
+  </dd>
+
+</dl>
+
+<h2><a id="section-A" name="section-A">A. References</a></h2>
+
+<table>
+</table>
+    
+
+<h2><a id="section-B" name="section-B">B. Document History</a></h2>
+
+<table>
+    
+<tr valign="top">
+  <td>2006-06-20</td>
+  <td><a href="mailto:drj@ravenbrook.com">DRJ</a></td>
+  <td>Created.</td>
+</tr>   
+
+
+</table>
+
+<hr />
+
+<p><small>
+Copyright &copy; 2006 Nokia Corporation and/or its subsidiary(-ies).
+All rights reserved.
+
+Permission is hereby granted, free of charge, to any person obtaining
+a copy of this software and associated documentation files (the
+"Software"), to deal in the Software without restriction, including
+without limitation the rights to use, copy, modify, merge, publish,
+distribute, sublicense, and/or sell copies of the Software, and to
+permit persons to whom the Software is furnished to do so, subject
+to the following conditions:
+
+The above copyright notice and this permission notice shall be
+included in all copies or substantial portions of the Software.
+
+THE SOFTWARE IS PROVIDED "AS IS", WITHOUT WARRANTY OF ANY KIND,
+EXPRESS OR IMPLIED, INCLUDING BUT NOT LIMITED TO THE WARRANTIES OF
+MERCHANTABILITY, FITNESS FOR A PARTICULAR PURPOSE AND NONINFRINGEMENT.
+IN NO EVENT SHALL THE AUTHORS OR COPYRIGHT HOLDERS BE LIABLE FOR
+ANY CLAIM, DAMAGES OR OTHER LIABILITY, WHETHER IN AN ACTION OF
+CONTRACT, TORT OR OTHERWISE, ARISING FROM, OUT OF OR IN CONNECTION
+WITH THE SOFTWARE OR THE USE OR OTHER DEALINGS IN THE SOFTWARE.
+</small></p>
+
+<div align="center">
+
+<p><code>$Id: //info.ravenbrook.com/project/jili/version/1.1/manual/build/index.html#1 $</code></p>
+
+<p>
+Java Implementation of Lua Language
+</p>
+
+
+</div>
+
+</body>
+
+</html>

@@ -1,0 +1,944 @@
+<?xml version="1.0" encoding="UTF-8"?>
+
+<!DOCTYPE html PUBLIC "-//W3C//DTD XHTML 1.0 Transitional//EN" "DTD/xhtml1-transitional.dtd">
+
+<html xmlns="http://www.w3.org/1999/xhtml" xml:lang="en" lang="en">
+
+<head>
+
+<title>Jill Architecture</title>
+
+</head>
+
+<body bgcolor="#FFFFFF" text="#000000" link="#000099" vlink="#660066" alink="#FF0000">
+
+<div align="center">
+
+<p>
+Java Implementation of Lua Language</a>
+</p>
+
+<hr />
+
+
+<h1>Jill Architecture</h1>
+
+<address>
+<a href="mailto:drj@ravenbrook.com">David Jones</a>,
+<a href="http://www.ravenbrook.com/">Ravenbrook Limited</a>,
+2006-04-26
+</address>
+
+</div>
+
+
+<h2 id="section-1">1. Introduction</h2>
+
+<p>
+This documents describe the design of Jill at a high level.
+</p>
+
+<p>
+This is a draft docoument.
+</p>
+
+<p>
+The readership of this document is anyone interested in the Jill
+project.
+</p>
+
+<h2 id="section-2">2. Overview</h2>
+
+<p>
+A key design principle is to follow the PUC-Rio design closely.  This
+reduces time spent making design choices and uses a design that is known
+to work well for implementing Lua.
+</p>
+
+<p>
+Because Jill must operate in constrained devices, designs that minimise
+superfluous classes have been preferred.  This is in order to reduce the
+size of any <code>.jar</code> file incorporating Jill.
+</p>
+
+
+<p>
+The key modules are identified diagrammatically:
+</p>
+
+<img src="modules.png" border="1"></img>
+
+
+<p>
+The diagram is arranged so that generally modules make use of services,
+and instantiate objects implemented by, modules lower down.
+</p>
+
+<p>
+The extent to which these modules correspond to classes is yet to be
+defined.  For example since Code (code generation) and Syntax (lexing
+and parsing) are used as a single process when compiling it seems likely
+that the functionality provided by these modules will be implemented in
+the same Java class.
+</p>
+
+<p>
+The modules are arranged in clusters:
+</p>
+
+<ul>
+
+<li>
+Generation (of code)
+</li>
+<li>
+Execution
+</li>
+<li>
+Representation (of data)
+</li>
+<li>
+Inspection (the oddball. debug module)
+</li>
+
+</ul>
+
+<p>
+Executable code is injected into the Jill system from two sources:
+compilation from lua source and loading precompiled binaries.  Both of
+these occur in the <code>Lua.load</code> method.  The Generation cluster is
+responsible for these activities.  Generally the results of compilation
+(or equivalently, undumping binary chunks) are a single function (one
+per script) which generally will reference many constants, strings,
+numbers, and other functions.  All of these objects are created using
+the lower level Representation cluster.  The Syntax and Code modules
+(the Java classes Syntax and FuncState mostly)
+create code from Lua source, the Undump module (the Java class Loader)
+creates code from a
+compiled binary representation.  The compiled binary representation is
+the same as the PUC-Rio implementation; this has the benefit that
+binaries can be compiled offline (not on the target) and loaded on the
+target, meaning that the compiler need not be working
+in order to test the remaining parts of the system.
+</p>
+
+<p>
+The Execution cluster is responsible for executing Lua code.  All Lua
+code that is to be executed is in an internal binary form (clusters of
+LuaFunction objects).  All execution begins by some Java code calling
+the <code>call</code> method or the <code>resume</code> method (for coroutine resumption) of a Lua
+state object.
+Execution proceeds by the VM interpreting the VM
+instructions of the function.  When control transfers to another Lua
+function then the VM suspends its internal state in an internal stack
+and begins interpreting VM instructions for the newly called function.
+Note that the VM, under most circumstances, will not invoke itself to
+execution a called Lua function, thus the Lua stack will not be modelled
+by the Java stack; this is essential in order to implement coroutines.
+Execution of VM instructions is suspended when Lua calls a function
+implemented in Java (such functions are modelled as instances of the
+<code>LuaJavaCallback</code> class);
+when that function returns to the VM then the VM
+will resume execution of VM instructions.  If the called Java function
+requests a yield, which it will do with code similar to <code>return
+L.yield(n)</code>, then the VM will remain suspended and return to its caller
+(the Java code that originally invoked <code>Lua.call</code>).
+</p>
+
+<p>
+Representation specifies how Lua values are modelled in terms of Java objects
+and values.  Classes in this cluster will specify the layout, in terms
+of Java objects, of Lua values and define the primitive operations on
+these values.  This is a large part of the design and its details have
+implications throughout the system.  See <a
+href="#object-model">Object Model</a>, below.
+</p>
+
+<p>
+The Debug cluster (module really) provides two services in Jill: the
+interface to Lua's debug hooks (which is in reality likely to be a
+method on the Lua state object); and, mapping of the compiled form of
+Lua functions to source code (file, line number, variable name).
+</p>
+
+
+<h2 id="object-model">
+3. Object Model
+</h2>
+
+<p>
+An encapsulated Lua execution environment is represented by the class
+<code>Lua</code>.
+In order to minimise superfluous classes this class is likely to
+implement a large number of methods.  This class will be the analogue of
+PUC-Rio's <code>lua_State</code> object.  Like PUC-Rio's implementation
+it is possible to have completely independent Lua execution
+environments by creating multiple instances of <code>Lua</code>.  Also
+like PUC-Rio's implementation Lua threads (aka coroutines) are
+created from a main Lua instance and are Lua instances themselves.
+</p>
+
+<p>
+Generally a value in Lua will be represented by an object (which
+possibly references further internal implementation objects) in Java.
+Java programmers using Jill will be able to store Lua values wherever
+they like, they will not be restricted to storing them only within other
+Lua objects (such as tables).  The JVM's GC will be used to implicitly
+collect Lua objects.  This means that provision of weakness (the
+<code>__mode</code> field of metatables, see <a href="#ref-lrm">LRM</a> <a
+href="http://www.lua.org/manual/5.1/manual.html#weak-table">Weak
+Tables</a>) and finalisation (the <code>__gc</code> field, see <a
+href="#ref-lrm">LRM</a> <a
+href="http://www.lua.org/manual/5.1/manual.html#2.10.1">Garbage-Collection
+Metamethods</a>) are subject to
+the implementation of equivalent facilities in the JVM.
+</p>
+
+<p>
+A Lua value supports many generic operations.  These are represented
+in Jill by methods on the Lua state object.
+The following monadic operations are identified (whose
+names are all taken from the equivalent functions from PUC-Rio's C API,
+eg lua_call, lua_getfield, etc): call, getfenv, getfield, 
+getmetatable, isboolean, isfunction, islightuserdata, isnil, isnumber,
+isstring, istable, isthread, isuserdata, objlen, setfenv, setfield,
+setmetatable, toboolean, tointeger, tonumber, topointer, tostring,
+tothread, touserdata, type.
+</p>
+
+<p>
+PUC-Rio's <code>lua_iscfunction</code> and <code>lua_tocfunction</code>
+will have equivalents for Lua Java functions.
+</p>
+
+<p>
+The following operations receive more than one value (operand):
+concat, equal, lessthan, rawequal.
+</p>
+
+<h3>Representing Lua's nil, boolean, number, and string types</h3>
+
+<p>
+Lua's <code>nil</code> is represented by a single unique object,
+<code>Lua.NIL</code> (this is created at class load time).
+</p>
+
+<p>
+Lua's <code>boolean</code> is represented by Java's
+<code>java.lang.Boolean</code>.  In particular each of <code>true</code>
+and <code>false</code> is represented by the static object in Java,
+<code>java.lang.Boolean.TRUE</code> and
+<code>java.lang.Boolean.FALSE</code>.
+</p>
+
+<p>
+Lua numbers are represented by Java's <code>java.lang.Double</code> class.
+Generally there is no attempt to intern these; the number 1.0 may
+be represented by several different instances of
+<code>java.lang.Double</code>.
+</p>
+
+<p>
+Lua strings are represented by Java's <code>java.lang.String</code> class.
+</p>
+
+<p>
+The upshot of representing nil, boolean, strings, and numbers by their
+"obvious" counterparts in Java is that we do not need to implement a new
+class for each type.  This saves space in the <code>.jar</code> file, is
+likely to be faster (less boxing and unboxing to perform), and is more
+natural for Java programmers writing Jill extensions.  A
+consequence is that the basic operations on Lua types (see above) cannot
+be represented by instance methods since Java provides no way for us to
+add an instance method to someone else's class, such as
+<code>java.lang.String</code>.  That's why all the basic operations are
+methods on the <code>Lua</code> class.
+</p>
+
+<p>
+An alternative approach, where all Lua values were represented by an
+(indirect) instance of a particular class, <code>LuaValue</code>, was
+considered, but rejected because of the extra classes it would introduce
+(bloating the <code>.jar</code> file)
+and because it leads to less natural code for the Java programmer, who would
+have to constantly create Java strings from Lua strings, convert Java
+doubles to Lua numbers and so forth.
+</p>
+
+<p>
+The VM Stack (see below) has a different representation for some Lua
+values.  The stack is a <code>Slot[]</code>, an array of Slot objects.
+Each element of the array refers to a Slot object.  Once a Slot object
+has been assigned an element in the array the array element always
+references that Slot object.  No Slot object is referenced by more than
+one array element.  A Slot object is a pair and can contain either a
+<code>double</code> value or a reference.  The slot objects are mutable.
+When a VM instruction creates a new number value it writes it into the
+double member of the target Slot object, thus no allocation need occur.
+</p>
+
+
+<h3>Representing Functions</h3>
+
+
+<p>
+A function implemented in Lua is represented by the class
+<code>LuaFunction</code>.
+A function implemented in Java is represented by (an instance of a
+subclass of) the class <code>LuaJavaCallback</code>.  The embedder of
+Lua will create Lua Java functions by subclassing
+<code>LuaJavaCallback</code> and instantiating it.  The libraries that
+are provided are all sublasses of <code>LuaJavaCallback</code>; the base
+library is implemented in the <code>BaseLib</code> class, and so on.
+</p>
+
+<h4>
+Functions implemented in Lua
+</h4>
+
+<p>
+A function (closure) corresponds to some <em>code</em>, some closed over
+variables (variables that are used in an inner function but are defined
+in an outer function) which Lua calls <code>upvalues</code>, and an
+<em>environment</em> (by default a function's environment is the same as
+the environment of the function in which it is defined;
+it is usually the global table, see
+<a href="#ref-lrm">LRM</a> <a
+href="http://www.lua.org/manual/5.1/manual.html#environ">2.9 -
+Environments</a>).
+</p>
+
+<p>
+The code is represented in the PUC-Rio source by a <code>Proto</code>
+struct which is quite large; it contains a block of VM instructions, an
+array of constants, an array of functions defined therein (actually an
+array of pointers to <code>Proto</code> structs), the number of upvalues
+used, the number of formal parameters, and some vararg information.
+</p>
+
+<p>
+An upvalue is a reference to a variable defined in an enclosing
+function.  They are represented internally in the PUC-Rio code by the
+<code>UpVal</code> type.
+PUC-Rio uses an optimised representation by which the value
+is kept on the VM stack until the enclosing function returns.  In
+returning, the enclosing function destroys its stack activation frame
+and copies all stack values (that are about to be destroyed)
+that are referred to by <code>UpVal</code>s into the <code>UpVal</code>
+struct.  This operation is referred to as closing the upvalue; upvalues
+that reference values that are still on the stack are <em>open</em>.
+In PUC-Rio the enclosing function, that defines a variable that
+is used by an inner function, has full-speed access to all its
+variables; the inner function pays only a slight penalty (an extra
+pointer indirection).  There is some housekeeping to do when a function
+returns, but this is only necessary if its inner functions use upvalues.
+</p>
+
+<p>
+(In PUC-Rio Lua) Upvalues are bound with a closure when the
+<code>OP_CLOSURE</code> VM instruction is executed.  Each element in the
+closure's <code>upvals</code> array is either a reference to an upvalue of
+the enclosing function (that is, the variable in question in defined in
+a function at least 2 levels "up" and is used by inner functions at
+different levels) which has already been created, or is a reference to
+an upvalue for a variable in the directly enclosing function (the
+function being executed when the <code>OP_CLOSURE</code> instruction is
+executed).  In the latter case the upvalue may already exist, if another
+closure defined in this function needed it, or may need creating.  The
+<code>luaF_findupval</code> does the job of searching for an
+<code>UpVal</code> or creating one if necessary.
+</p>
+
+<p>
+Keeping the same approach imposes the following design requirements on
+Jill's upvalue mechanism:
+</p>
+
+<dl>
+
+<dt>Speed</dt>
+<dd>Must not slow access to non-upvalue variables.</dd>
+
+<dt>Housekeeping</dt>
+<dd>For enclosing functions that have inner functions that use upvalues,
+some extra housekeeping is acceptable when the enclosing function
+returns.</dd>
+
+<dt>Determine</dt>
+<dd>Must be able to quickly determine if any housekeeping is necessary
+when <code>OP_RET</code> is executed
+(that is, whether there are any upvalues that need closing).
+
+<dt>Close</dt>
+<dd>Must be able to identify all upvalues that reference a stack frame
+that is about to be destroyed (on function return).</dd>
+
+<dt>Share</dt>
+<dd>When a closure is created it must be possible to locate an upvalue
+that has already been created for a particular stack slot.  This search
+must be possible using the stack slot as the key.
+</dd>
+
+<dt>New</dt>
+<dd>When a closure is created it must be possible to create new upvalues
+that reference a particular stack slot (slots for which there is no
+existing upvalue yet).</dd>
+
+<dt>Enclosing</dt>
+<dd>(easy) When a closure is create it must be possible to access the
+upvalues of the enclosing function so that the closure can reference
+them as well.  (This must be easy because the <code>OP_GETUPVAL</code>
+instruction requires the same access)</dd>
+
+</dl>
+
+<p>
+We take a similar approach to the PUC-Rio implementation.  An open
+upvalue references the same Slot object that is referenced by the element
+of the array used by the stack.  When the upvalue is closed a fresh Slot
+object is created from the contents of the old one; this new Slot object
+is then referenced by the UpVal and so is no longer shared with the
+stack.
+</p>
+
+<div align="center">
+<img src="upval.png" border="1">
+<p>Illustration of <code>UpVal</code> representation when open and
+closed (slightly wrong now).</p>
+</div>
+
+<p>
+The set of open upvalues is accesssed in a near stack-like manner.
+New upvalues are created by the <cod>OP_CLOSURE</code> opcode, and only
+the currently active (topmost) function can create upvalues.  Whilst a
+suspended function might have create some upvalues and might create some
+more when execution returns to it, no upvalues that correspond to the
+local variables of a suspended function will be created (until that
+function becomes active again).  So the set of open upvalues consists of
+all the upvalues created by one function, followed by all the upvalues
+created by a function it called, followed by all the upvalues created by
+a function it called, and so on.  The upvalues for the currently active
+function can be created in any order.  All the upvalues for a function
+(or block) are removed (by <code>OP_RET</code> or <code>OP_CLOSE</code>)
+when the function returns.  Thus the access is near stack-like, new
+upvalues are created within a set of upvalues confined to the current
+function, and all the upvalues of a function are removed together (this
+isn't quite true for upvalues inside loops and other <code>do ...
+end</code> blocks, but it nearly is).
+</p>
+
+<p>
+PUC-Rio uses a linked list to manage the set of open upvalues.  The list
+is kept in order of stack slot position (top-most stack slot comes
+earliest in the list).  In Jill
+<code>java.util.Stack</code> could be a reasonable
+choice. Examining the <code>Stack</code> class however,
+we won't be using <code>pop</code>, as a single
+<code>setSize</code> at the end of a close operation is likely to be
+faster, and <code>search</code> is equally performed by
+<code>lastIndexOf</code>.  The other methods of
+<code>java.util.Stack</code> are worthless.  So we may as well use its
+superclass <code>java.util.Vector</code>.
+Of course we could, as in PUC-Rio, use a list-like structure but CLDC
+has no list-like class so we would be forced to implement our own.
+Tedious and pointless.  <code>java.util.Hashtable</code> is rejected
+because it performs poorly for the <em>Close</em> requirement (it
+would be O(n) time in the number of stack slots being destroyed as
+opposed to the PUC-Rio implementation which is O(n) time in the number
+of upvalues that require closing), and although it performs well for the
+other requirements Jill will emphasise <em>Close</em> because PUC-Rio
+does.
+</p>
+
+<h4>Functions implemented in Java</h4>
+
+<p>
+The code for functions that are implemented in Java, "Lua Java Functions",
+is represented by an instance of the abstract class
+<code>LuaJavaCallback</code>.  An abstract class
+is preferred over an interface because method invocation is a shorter
+JVM bytecode sequence.
+</p>
+
+<pre>
+public abstract class LuaJavaCallback {
+  abstract int luaFunction(Lua L);
+}
+</pre>
+
+<p>
+Generally we expect that the embedder of Lua will subclass
+<code>LuaJavaCallback</code> and create an instance for each Lua Java
+Function.  The implementation of a subclass's <code>luaFunction</code>
+method will need to distinguish between its instances (each instance
+represents a different Lua function such as <code>string.reverse</code>
+or <code>string.match</code>).  There are several strategies for this:
+extend the class with an instance member (an <code>int</code> say) that
+will be different for each instance and can be used to determine which
+function is intended; store each instance in a static member and use
+these to compare against; make each instance be the sole instance of
+a (possibly anonymous) subclass each of which implements
+<code>luaFunction</code>, Java method invocation will invoke the
+correct method.  Of these three the former (a discriminating instance
+member) is preferred.  For JME environments the latter approach of
+having a separate class for each instance (each Lua Java Function) is
+not recommended as it will lead to <code>.jar</code> bloat.  The
+libraries provided with Jill use the former approach; the instance
+member is called "which".
+</p>
+
+<h3>Representing Tables</h3>
+
+<p>
+Lua Tables are represented by the class <code>LuaTable</code>,
+which uses
+the services of <code>java.util.Hashtable</code> (which thankfully
+exists in
+CLDC 1.0) to do some of the work.  
+<code>LuaTable</code> is a subclass of <code>java.util.Hashtable</code>
+(smaller and faster than alternatives).
+The services beyond those provided
+by <code>java.util.Hashtable are</code>: metatable, non-raw access (ie a getfield
+which goes via the metatable if there is one), length (with non-obvious
+semantics, see <a href="#ref-lrm">LRM</a>: <a
+href="http://www.lua.org/manual/5.1/manual.html#len-op">The Length
+Operator</a>), callable (metatable), concatable (metatable), comparable
+(metatable).  All of these operations will be invoked by the Java
+programmer using static method from the <code>Lua</code> class; recall
+that this is necessary because in Lua all values support most operations.</p>
+
+<p>
+Because Intuwave have identified the array use of a table as important,
+where the table is indexed mostly with keys that are integers from 1 to
+N, the LuaTable class efficiently supports this case.  Like the PUC-Rio
+implementation a table is split into two parts, an array part, and a
+hash part.  In LuaTable the array part implements the table mapping for
+all integer keys from 1 to <code>sizeArray</code> (an instance member)
+inclusive.  The hash part is implemented by the superclass,
+<code>java.util.Hashtable</code>.</p>
+
+<p>The size of the array part can be
+chosen when LuaTable is instantiated, using the <code>LuaTable(int,
+int)</code> constructor, and is also determined automatically by the
+implementation when a rehash occurs.  The VM instruction
+<code>OP_NEWTABLE</code> will set the initial size of the array and hash
+parts according to the hints specified by the compiler; this optimises
+the case where a table is created in Lua using an initialiser: <code>t =
+{1, 2, 3, 'a', 'b', 'c'}</code>.  When a rehash occurs
+(<code>LuaTable.rehash</code> is invoked) a survey of suitable keys in
+the table is taken and <code>sizeArray</code> is chosen to be the
+largest power of 2 such that at least half the keys from 1 to
+<code>sizeArray</code> are used.  This is basically a clone of the
+PUC-Rio approach.
+</p>
+
+<p>Note that we are relying on the underlying table support providing by
+<code>java.util.Hashtable</code>.  This may have different performance
+from the PUC-Rio C implementation of hash tables.  For example, Lua's
+<code>pairs</code> function from the base library will be implemented
+using the <code>java.util.Enumeration</code> returned from the
+<code>Hashtable</code>'s <code>keys</code> method, so this will be
+reasonably efficient.  The <code>next</code> function, also in the base
+library but less commonly used, is not supported efficiently by
+<code>java.util.Hashtable</code> so its implementation in Jill will be
+less efficient.
+</p>
+
+<p>
+Also likely to have an impact on the performance of tables is the hash
+function, which in Java is distributed amongst the classes whose objects
+will be added to the table.  Since we are representing many Lua values
+directly by corresponding Java objects, we will have no control over the
+hash function (which for most of the types we will be using is in fact
+specified by the Java platform.  EG <code>java.lang.String</code>).
+</p>
+
+<p>
+The semantics of the Java <code>equals</code> method affects how objects
+are keyed into a table.  If two Java objects are <code>.equals</code>
+then they cannot both be added to a <code>Hashtable</code>.  This is a
+concern when adding tables to tables.  In Lua each new table is a new
+object and value, no two tables compare equal and when adding a table to
+a table it will never clash with an existing key.  In JSE
+<code>java.util.Hashtable</code> implements <code>equals</code> such
+that tables are compared by the value of their contents when considering
+equality.  Two <code>Hashtable</code>s are equal if the mappings they
+implement are equal.  In JME (CLDC) <code>java.util.Hashtable</code>
+does not implement <code>equals</code>, so inherits the most
+discriminating <code>equals</code> method from <code>Object</code>.  The
+upshot is that Jill's <code>LuaTable</code> class must implement
+<code>equals</code> in JSE if it is to get the correct Lua table
+semantics, but need not do this in JME.
+</p>
+
+<h3>Representing Userdata</h3>
+
+<p>
+In PUC-Rio Lua a userdata exists to create Lua values that reference
+C types, either directly or via an additional pointer.  The
+corresponding facility in Jill allows Lua values that reference
+arbitrary Java objects and includes a per-object metatable.  It is a
+simple class with a metatable member and an <code>Object</code> member.
+</p>
+
+<h3>Representing Coroutines</h3>
+
+<p>
+As in PUC-Rio Lua, Jill represents a thread (or coroutine) by a Lua
+state object that shares a global environment with its parent coroutine.
+Note that whilst coroutines share global environments they do not share
+VM execution states so they represent independent threads of execution.
+</p>
+
+<p>
+There is some state that is shared between threads that would ordinarily
+best be implemented by each thread referencing a common object (or
+objects), but in order to speed up access to the shared state from each
+thread it is copied into each thread.  This is implemented in the
+private constructor <code>Lua(Lua)</code> where the references to the
+global table, the registry, and the one-off metatables are copied into
+the new thread.
+</p>
+
+<h2 id="section-4">4. Execution</h2>
+
+<p>The VM is responsible for executing Lua code after it has been
+compiled into VM instructions.  The format is identical to the PUC-Rio
+version of Lua:  Each instruction is a
+32-bit quantity, which is represented by Java's 32-bit <code>int</code>
+type.
+</p>
+
+<p>
+The activities of the VM can be divided up as follows:
+</p>
+
+<ul>
+<li>Execution of straight line VM opcodes, for example
+<code>OP_LOADK</code>.</li>
+<li>Calling and returning from functions, both in Lua and Java.</li>
+<li>Handling resume/yield for a coroutine.</li>
+<li>Metamethods, which are generally called as a result of executing the
+straight-line opcodes, for example <code>OP_ADD</code>.</li>
+<li>Debug hooks (per line, per instruction, per call).</li>
+</ul>
+
+<p>
+Within the execution of a single function the VM opcodes can access: the
+"global" table (this is actually the environment table of the currently
+active function), a number of constants (stored in the
+<code>Proto</code> object of the currently active function), 
+a fixed number of stack slots (locals and temporaries), a number of
+upvalues (the upvalues accessible to a function are indexed via an array
+stored in the <code>Proto</code> object for that function).
+</p>
+
+<p>
+In order to optimise the operation of the numerical instructions (like
+<code>OP_ADD</code>), which on the whole receive nnumbers as operands and
+produce numbers as results, the stack is organised so that the VM can
+execute such instructions without allocation.  The stack is a
+<code>Slot[]</code>, each element of the array points to a unique
+<code>Slot</code> instance.  The VM when it needs to write to a stack
+slot mutates the <code>Slot</code> instance referred to by the array
+element.  Each <code>Slot</code> instance can represent a double or a
+Java reference.  Thus a new number, the result of <code>x + y</code> for
+example, can be written into the target stack location without a new
+object being allocated.
+</p>
+
+<p>
+An upshot of the stack being a <code>Slot[]</code> is that numbers may
+need converting from <code>double</code> to <code>Double</code> and back
+again when crossing the API and also when being manipulated in tables.
+A typical example is the <code>LuaTable.getlua(Slot, Slot)</code> method
+which receives the key as a <code>Slot</code> and receives a
+<code>Slot</code> to which the result is written.  The
+<code>Slot.setObject</code> method is used to store the result; this
+method is responsible for handling <code>Double</code> as a special
+case.
+</p>
+
+<p>
+The stack slots available to a function activation are fixed in number,
+determined when the function is compiled.  The stack slots are arranged
+in a stack: when a (Lua) function is called the actual arguments are
+top-most stack slots of the calling function, and they become the
+bottom-most stack slots of the called function.  The stack slots that
+are available to a called function are the ones that are used for its
+arguments followed by a fixed number of stack slots for its locals and
+temporaries.  Each function activation gets a private set of stack slots
+to work with.  The range of stack slots available to an activation is
+typically denoted by (base, top), where <var>base</var> is the smallest
+index available to the function, and <var>top</var> is one more than the
+greatest index available to the function (this follows the analogous
+pointer convention used in the PUC-Rio implementation).  In the source
+code the instance member <code>stackSize</code> denotes the position of
+<var>top</var>.
+</p>
+
+<p>
+Thus when a function is called the following information needs to be
+retained in order to restore the stack when the called function
+eventually returns:
+</p>
+
+<ul>
+<li>The function (a reference to the function object for the suspended
+function).</li>
+<li>PC.  The next instruction to execute from the function's block of
+instructions.</li>
+<li>base and top stack index values.</li>
+</ul>
+
+<p>
+This data forms the continuation when a function is called.
+Note that much of the information that is used for VM execution, the
+environment table, the upvalue array, the constant array, is retrievable
+using just the function object, so that is all we need to store.
+</p>
+
+<p>
+In order to avoid needless copying of arguments when a function is
+called, the continuation data is stored in a separate stack of
+<code>CallInfo</code> records.  The alternative, which is to store the
+continuation on the regular VM stack would mean that when <code>f</code>
+calls <code>g</code> the arguments would have to be copied from f's
+stack frame to g's stack frame.
+</p>
+
+<div align="center">
+<img src="stack.png" border="1" />
+<p>Principal VM objects, for when Lua function f calls g.</p>
+</div>
+
+<p>
+Note in the diagram that g's stack frame overlaps with f's stack frame.
+When f calls g the arguments that f has pushed onto the stack become the
+bottom-most elements of g's stack frame (a bit like sliding register
+windows in some RISC CPU architectures).</p>
+
+<p>
+There is a small cheat in the diagram.  The <code>CallInfo</code> record
+for the current function, the top-most record, is not completely filled
+in during the execution of g; it's only filled in when g calls another
+function.  So the diagram represents a point in the execution where g is
+about to call another function, but no stack nor <code>CallInfo</code>
+record has been allocation for the callee.
+</p>
+
+<h3 id="section-4.1">4.1 Coroutines and Yielding</h3>
+
+<p>
+Coroutines are represented by a separate <code>Lua</code> instance that
+share some global state with its parent (global table, registry,
+metamethods for string, nil, functions, etc).  Execution of coroutines
+thus proceeds in a completely natural fashion, two coroutines provided
+separate execution environments and do not interfere with each other.
+</p>
+
+<p>
+Intuwave have an additional yielding requirement related to their
+co-operative task implementation.  The requirement on Jill is that a Lua
+Java function can yield the coroutine that called it by throwing an
+<code>Exception</code>.  In such a circumstance Jill will catch the
+exception, arrange the Lua state so that the coroutine is effectively
+yielded (as if the Lua Java Function did a <code>return
+L.yield(0)</code>), and then rethrow the exception (or behaviour
+equivalent to this).
+</p>
+
+<h2 id="section-5">5. Errors</h2>
+
+<p>
+An error in a Lua program results in a transfer of control to the
+invoking Java code (unless <code>pcall</code>, or similar, from the base
+library has been used within Lua, but it uses the same mechanism).
+</p>
+
+<p>
+The transfer of control is done using an <code>Exception</code> in Java.
+A subclass of <code>Exception</code>, <code>LuaError</code>, is created
+to store the extra Lua <code>errorStatus</code> values which needs to
+get passed from the point where the error is generated to the catching
+code (<code>pcall</code>).  In order to avoid littering the code with
+<code>throws</code> declarations <code>LuaError</code> is a subclass of
+<code>java.lang.RuntimeException</code>.
+</p>
+
+<p>
+When an error is caught, the following VM state is restored by
+<code>pcall</code>:
+</p>
+<ul>
+<li>top-of-stack</li>
+<li>base (virtual bottom of stack)</li>
+<li>CallInfo stack</li>
+<li>pc</li>
+</ul>
+
+<p>
+Errors are also caught when a thread is executed using
+<code>Lua.resume</code>.  In this case the VM stack is not unwound.
+</p>
+
+<h2>6. Compilation</h2>
+
+<p>
+The Jill compiler closely follows the PUC-Rio compiler.  This is
+organised as a hand-coded lexer (not table-driven), and a hand-coded
+recursive descent parser with table-driven operator-precedence parsing
+for binary and unary expressions.  Code generation happens as the
+program is parsed, thus there are very few explicit structures to
+represent the syntax or the parse.  The representation of the parse is
+implicit in the call-stack.  For example, as an expression is
+parsed, code to evaluate that expression is generated (and emitted into
+the code stream) and the compilation result is a register
+(that is, the index of a VM runtime
+register) which is available for enclosing expressions to make use of.
+</p>
+
+<p>
+<code>BinOpr</code> and <code>UnOpr</code> in PUC-Rio are an enumeration
+of binary and unary operators.  They are used for two purposes.  The
+first is that they are used to communicate between the parser and the
+code generator, as to which code needs to be generated.  The second is
+that they are used in the operator precedence parser to index into a
+table of precedence values.  In Jill these two enum types become
+<code>int</code>.</p>
+
+<p>
+The operator priority table (for operator precedence
+parsing) uses an anonymous two-element struct in PUC-Rio (for left- and
+right- priority).  In Jill this is replaced with a 2-element array,
+where <code>[0]</code> is the left-priority and <code>[1]</code> is the
+right-priority.  Thus the table of priorities is an <code>int[][]</code>
+(if Java were able to express such a thing it would be
+<code>int[][2]</code>).
+</p>
+
+<p>
+Code generation routines, in <code>lcode.c</code> in PUC-Rio, are
+methods on the <code>FuncState</code> object.
+</p>
+
+<p>
+Most of the lexical analysis and parsing routines are in the
+<code>Syntax</code> class.  This class effectively replaces
+<code>LexState</code> from the PUC-Rio implementation and implements
+code that is in the PUC-Rio files "llex.c" and "lparser.c".
+</p>
+
+<p>
+<code>expdesc</code> becomes the <code>Expdesc</code> class and is used
+in quite an unconventional way for a Java class.  Its use follows the
+way the <code>expdesc</code> struct is used.  A blank instance is
+created at the beginning of an expression parse, and filled in as the
+parse goes along (and sometimes modifed as well).
+</p>
+
+<p>
+The low-level production of tokens differs slightly from the way PUC-Rio
+does it.  <code>llex</code> (in both PUC-Rio and Jill) is responsible.
+In the PUC-Rio implementation <code>llex</code> uses a pointer to return
+the semantic information.  In Java it's not possible to use a pointer
+directly, and the alternative of creating a class to hold the semantic
+information wastes too much jar file size.  So in Jill <code>llex</code>
+"returns" the semantic information by placing it in the instance
+variables <var>semR</var> and <var>semS</var>.  The callers of
+<code>llex</code>, <code>xLookahead</code> and <code>xNext</code>, then
+copy the semantic information into <code>token*</code> or
+<code>lookaheader*</code> as appropriate.  As there are only 2 different
+callers, this approach seems fine.
+</p>
+
+
+<h2 id="section-A">A. References</h2>
+
+<table>
+
+<tr valign="top">
+    <td>[<a id="ref-lrm">LRM</a>]</td>
+    <td>Lua 5.1 Reference Manual; Roberto Ierusalimschy, Luiz Henrique
+    de Figueiredo, Waldemar Celes; &lt;URL: <a
+    href="http://www.lua.org/manual/5.1/manual.html">http://www.lua.org/manual/5.1/manual.html"</a>
+    &gt;; 2006</td>
+</tr>
+  
+</table>
+
+<h2 id="section-B">B. Document History</h2>
+
+<table>
+
+<tr valign="top">
+    <td>2006-04-26</td>
+    <td><a href="mailto:drj@ravenbrook.com">DRJ</a></td>
+    <td>Created.</td>
+</tr>
+
+<tr valign="top">
+    <td>2006-05-15</td>
+    <td><a href="mailto:drj@ravenbrook.com">DRJ</a></td>
+    <td>Extended for upvalues.</td>
+</tr>
+
+<tr valign="top">
+    <td>2006-05-16</td>
+    <td><a href="mailto:drj@ravenbrook.com">DRJ</a></td>
+    <td>VM and stack diagram.</td>
+</tr>
+
+<tr valign="top">
+    <td>2006-08-02</td>
+    <td><a href="mailto:drj@ravenbrook.com">DRJ</a></td>
+    <td>Tidied up and brought more up to date.</td>
+</tr>
+
+<tr valign="top">
+    <td>2006-09-13</td>
+    <td><a href="mailto:drj@ravenbrook.com">DRJ</a></td>
+    <td>Brought up to date.</td>
+</tr>
+
+</table>
+
+<h2 id="section-C">C. Copyright and Licence</h2>
+
+<p>
+Copyright &copy; 2006 Nokia Corporation and/or its subsidiary(-ies).
+All rights reserved.
+
+Permission is hereby granted, free of charge, to any person obtaining
+a copy of this software and associated documentation files (the
+"Software"), to deal in the Software without restriction, including
+without limitation the rights to use, copy, modify, merge, publish,
+distribute, sublicense, and/or sell copies of the Software, and to
+permit persons to whom the Software is furnished to do so, subject
+to the following conditions:
+
+The above copyright notice and this permission notice shall be
+included in all copies or substantial portions of the Software.
+
+THE SOFTWARE IS PROVIDED "AS IS", WITHOUT WARRANTY OF ANY KIND,
+EXPRESS OR IMPLIED, INCLUDING BUT NOT LIMITED TO THE WARRANTIES OF
+MERCHANTABILITY, FITNESS FOR A PARTICULAR PURPOSE AND NONINFRINGEMENT.
+IN NO EVENT SHALL THE AUTHORS OR COPYRIGHT HOLDERS BE LIABLE FOR
+ANY CLAIM, DAMAGES OR OTHER LIABILITY, WHETHER IN AN ACTION OF
+CONTRACT, TORT OR OTHERWISE, ARISING FROM, OUT OF OR IN CONNECTION
+WITH THE SOFTWARE OR THE USE OR OTHER DEALINGS IN THE SOFTWARE.
+</p>
+
+<hr />
+
+<div align="center">
+<p><code>$Id: //info.ravenbrook.com/project/jili/version/1.1/design/arch/index.html#1 $</code></p>
+
+<p>
+Java Implementation of Lua Language
+</p>
+
+</div>
+
+</body>
+</html>

@@ -1,0 +1,484 @@
+<?xml version="1.0" encoding="UTF-8"?>
+
+<!-- $Header: //info.ravenbrook.com/project/jili/version/1.1/build.xml#1 $ -->
+
+<!--
+  This build.xml file is documented in manual/build/ .
+-->
+
+<project name="Jill" default="compile" basedir=".">
+
+  <!--
+    The buildprop.local is intended to be written by users
+    (maintainers and builders) if needed.  It is not supplied as part of
+    the managed sources, and Ant will not complain if it is not present.
+    It is intended to be used so that properties that define the
+    location of .jar files, etc, can be overriden.
+  -->
+  <property file="buildprop.local" />
+
+  <!--
+    Properties that you might want to change.  These properties can be
+    overridden by defining them in a file called buildprop.local (see
+    above)
+
+    j2meunit    - location of j2meunit.jar file.
+    mpp         - location of mpowerplayer sdk directory (for OS X)
+    rim         - location of RIM BlackBerry JDE
+    sun-wtk     - location of Sun Java Wireless Toolkit
+    checkstyle  - location of checkstyle-all-4.1.jar
+
+  -->
+
+  <!--
+    The default definitions for these properties are given below.  If
+    you change these defaults, please also update the documentation in
+    manual/build/
+  -->
+
+  <property name="j2meunit"
+      value="lib/j2meunit.jar" />
+  <property name="mpp"
+      value="/usr/local/mpp-sdk" />
+  <property name="rim"
+      value="C:/Program Files/Research In Motion/BlackBerry JDE 4.1.0" />
+  <property name="sun-wtk"
+      value="/home/markt/software/javas/j2me-2.2" />
+  <property name="checkstyle"
+      value="lib/checkstyle-all-4.1.jar" />
+
+
+  <!-- define exactly one property of the form platform.* -->
+
+  <condition property="platform.macosx">
+    <and>
+      <os family="mac" />
+      <os family="unix" />
+    </and>
+  </condition>
+
+  <condition property="platform.win">
+    <os family="windows" />
+  </condition>
+
+  <condition property="platform.linux">
+    <and>
+      <os family="unix" />
+      <not><os family="mac" /></not>
+    </and>
+  </condition>
+
+
+  <!-- now pick a JME SDK to use -->
+
+  <condition property="which.jme" value="mpp">
+    <isset property="platform.macosx" />
+  </condition>
+
+  <condition property="which.jme" value="rim">
+    <isset property="platform.win" />
+  </condition>
+
+  <condition property="which.jme" value="sun-wtk">
+    <isset property="platform.linux" />
+  </condition>
+
+
+  <!-- Standard java classes, only needed by mpp -->
+  <!--
+    Note that recent versions of Mac OS X 10.4 come with Java 1.5 as
+    default.  The classes.jar file for Java 1.5 cannot be preverified by
+    the mpp preverify tool.  Therefore we explicitly name the Java 1.4
+    classes.jar file.
+  -->
+  <!-- :todo: is there a better way of doing this? -->
+  <condition property="java.classes.jar"
+      value="/System/Library/Frameworks/JavaVM.framework/Versions/1.4/Classes/classes.jar">
+    <isset property="platform.macosx" />
+  </condition>
+
+  <!-- JME jar files when using MPP -->
+  <property name="mpp.jar"
+      value="${mpp}/cldc.jar:${mpp}/midp.jar:${java.classes.jar}" />
+  <!-- JME jar files when using RIM -->
+  <property name="rim.jar" value="${rim}/lib/net_rim_api.jar" />
+  <!-- JME jar files when using Sun WTK -->
+  <property name="sun-wtk.jar" value="${sun-wtk}/lib/cldcapi11.jar:${sun-wtk}/lib/midpapi20.jar" />
+
+  <!-- All required JME jar files in classpath syntax -->
+  <condition property="jme.jar" value="${mpp.jar}">
+    <equals arg1="${which.jme}" arg2="mpp" />
+  </condition>
+  <condition property="jme.jar" value="${rim.jar}">
+    <equals arg1="${which.jme}" arg2="rim" />
+  </condition>
+  <condition property="jme.jar" value="${sun-wtk.jar}">
+    <equals arg1="${which.jme}" arg2="sun-wtk" />
+  </condition>
+
+  <!-- Location of preverify tool -->
+  <!-- if using MPP (on OS X) then assume an absolute location ... -->
+  <condition property="preverify" value="${mpp}/osx/preverify/preverify">
+    <equals arg1="${which.jme}" arg2="mpp" />
+  </condition>
+  <!-- ... otherwise assume we can find it on the path -->
+  <property name="preverify" value="preverify" />
+
+  <target name="sysinfo">
+    <echo message="os.name:          ${os.name}" />
+    <echo message="os.arch:          ${os.arch}" />
+    <echo message="os.version:       ${os.version}" />
+    <echo message="ant.version:      ${ant.version}" />
+    <echo message="ant.java.version: ${ant.java.version}" />
+    <echo message="java.version:     ${java.version}" />
+  </target>
+
+  <target name="prop">
+    <echoproperties />
+  </target>
+
+  <target name="checkstyle-task">
+    <!-- loads the definition for the checkstyle task.  It's a target so
+      that the style target can depend upon it.  When the style target is
+      not required, the checkstyle task won't be loaded, and Ant won't
+      complain about not being able to find the file.
+    -->
+    <taskdef resource="checkstyletask.properties"
+        classpath="${checkstyle}" />
+  </target>
+
+  <target name="style" depends="checkstyle-task">
+    <checkstyle config="code/codingstyle.xml">
+      <fileset dir="code" includes="**/*.java" />
+      <formatter type="plain" />
+      <formatter type="plain" toFile="style.txt" />
+    </checkstyle>
+  </target>
+
+  <target name="bin-dir">
+    <mkdir dir="bin" />
+  </target>
+
+  <target name="load"
+      depends="cod"
+      description="Loads cod file onto USB-attached BlackBerry device" >
+    <exec executable="javaloader" >
+      <arg value="-u" />
+      <arg value="load" />
+      <arg value="bin/jilit.cod" />
+    </exec>
+    <exec executable="javaloader" >
+      <arg value="-u" />
+      <arg value="load" />
+      <arg value="bin/jilishell.cod" />
+    </exec>
+  </target>
+
+  <target name="cod"
+      depends="bin-dir,jar"
+      description="Builds BlackBerry code files in bin/" >
+    <exec executable="rapc" dir="bin" >
+      <arg value="import=${rim}/lib/net_rim_api.jar" />
+      <arg value="-midlet" />
+      <arg value="codename=jilit" />
+      <arg value="jilit.jar" />
+    </exec>
+    <exec executable="rapc" dir="bin" >
+      <arg value="import=${rim}/lib/net_rim_api.jar" />
+      <arg value="-midlet" />
+      <arg value="codename=speed" />
+      <arg value="speed.jar" />
+    </exec>
+    <exec executable="rapc" dir="bin" >
+      <arg value="import=${rim}/lib/net_rim_api.jar" />
+      <arg value="-midlet" />
+      <arg value="codename=jilishell" />
+      <arg value="jilishell.jar" />
+    </exec>
+  </target>
+
+  <target name="jar"
+      depends="bin-dir,preverify"
+      description="Builds some popular jar files in bin/" >
+
+    <!--
+      Gather files for jilit.  Take everything we can get.
+    -->
+    <copy todir="prejar/jilit" >
+      <fileset dir="preverified" />
+      <fileset dir="test-preverified" />
+    </copy>
+    <jar
+      destfile="bin/jilit.jar"
+      basedir="prejar/jilit"
+      manifest="test/metest-manifest"
+      />
+
+    <!--
+      Gather files for SpeedMIDlet.  Take everything.  (lazy but ok)
+    -->
+    <copy todir="prejar/speed" >
+      <fileset dir="preverified" />
+      <fileset dir="test-preverified" />
+    </copy>
+    <jar
+      destfile="bin/speed.jar"
+      basedir="prejar/speed"
+      manifest="test/speed-manifest"
+      />
+
+    <!--
+      Gather files for JiliShell, copying just what we need and no more.
+      So that its file size can be used as a measure of how big a jar
+      with Jill in is.
+    -->
+    <copy todir="prejar/jilishell" >
+      <fileset dir="preverified" />
+      <fileset dir="test-preverified"
+        includes="**/JiliShell*.class" />
+    </copy>
+    <jar
+      destfile="bin/jilishell.jar"
+      basedir="prejar/jilishell"
+      manifest="test/jilishell-manifest"
+      />
+  </target>
+
+  <!--
+    Runs preverifier on compiled/ and test-compiled/ directories.
+    The results go into separate directories.
+  -->
+  <target name="preverify" depends="include-extra,compile,compile-test" >
+    <!-- preverify compiled/ into preverified/ -->
+    <exec executable="${preverify}" >
+      <arg value="-classpath" />
+      <arg value="${jme.jar}" />
+      <arg value="-d" />
+      <arg value="preverified" />
+      <arg value="compiled" />
+    </exec>
+    <!-- preverify test-compiled/ into test-preverified/ -->
+    <exec executable="${preverify}" >
+      <arg value="-classpath" />
+      <arg value="${jme.jar}${path.separator}preverified" />
+      <arg value="-d" />
+      <arg value="test-preverified" />
+      <arg value="test-compiled" />
+    </exec>
+    <!-- copy non-class files (resources) as well. -->
+    <copy todir="preverified" >
+      <fileset dir="compiled">
+        <exclude name="**/*.class" />
+      </fileset>
+    </copy>
+    <copy todir="test-preverified" >
+      <fileset dir="test-compiled">
+        <exclude name="**/*.class" />
+      </fileset>
+    </copy>
+  </target>
+
+  <!-- places additional materials alongside compiled class files -->
+  <target name="include-extra" depends="compiled-dir,test-compiled-dir" >
+    <exec executable="jar" dir="test-compiled" >
+      <arg value="xf" />
+      <arg value="../${j2meunit}" />
+    </exec>
+    <copy todir="test-compiled">
+      <fileset dir="test">
+        <!-- Auxiliary lua (source and binary) files for the tests -->
+        <include name="**/*.lua" />
+        <include name="**/*.luc" />
+        <!-- Entire libs sub-directory is used by PackageLibTest -->
+        <include name="**/libs/**" />
+      </fileset>
+    </copy>
+  </target>
+
+  <target name="compiled-dir">
+    <mkdir dir="compiled" />
+  </target>
+
+  <target name="compile"
+      depends="compiled-dir"
+      description="Compiles java code from code/ to compiled/" >
+    <javac destdir="compiled" srcdir="code"
+        debug="true"
+        bootclasspath="${jme.jar}"
+        classpath="${j2meunit}"
+        source="1.2"
+        target="1.1"
+    />
+  </target>
+
+  <target name="compiled-gnone-dir">
+    <mkdir dir="compiled-gnone" />
+  </target>
+
+  <!--
+    Compiles Java sources into compiled-gnone using the -g:none option.
+    The resulting class files have no debug information, so are smaller.
+    -->
+  <target name="compile-gnone"
+      depends="compiled-gnone-dir" >
+    <javac destdir="compiled-gnone" srcdir="code"
+        debug="off"
+        bootclasspath="${jme.jar}"
+        classpath="${j2meunit}"
+        source="1.2"
+        target="1.1"
+    />
+  </target>
+
+  <target name="test-compiled-dir">
+    <mkdir dir="test-compiled" />
+    <mkdir dir="test-compiled-se" />
+  </target>
+
+  <target name="compile-test"
+      depends="test-compiled-dir,compile" >
+    <javac destdir="test-compiled" srcdir="test"
+        debug="true"
+        classpath="${jme.jar}:${j2meunit}:compiled"
+        source="1.2"
+        target="1.1"
+    />
+    <!-- move JSE-only files elsewhere so that they don't break in the
+      preverify stage
+      -->
+    <move todir="test-compiled-se">
+      <fileset dir="test-compiled">
+        <include name="**/Luac.*" />
+        <include name="**/Luai.*" />
+        <include name="**/*SE.*" />
+      </fileset>
+    </move>
+  </target>
+
+  <target name="clean"
+      description="Cleans intermediate build products (not bin/)" >
+    <delete dir="compiled" quiet="true" />
+    <delete dir="test-compiled" quiet="true" />
+    <delete dir="test-compiled-se" quiet="true" />
+    <delete dir="preverified" quiet="true" />
+    <delete dir="test-preverified" quiet="true" />
+    <delete dir="prejar" quiet="true" />
+  </target>
+
+  <target name="doc"
+      description="Creates documentation in javadoc/" >
+    <javadoc destdir="javadoc"
+        classpath="${j2meunit};${jme.jar}"
+        access="public" >
+      <fileset dir="code" />
+    </javadoc>
+    <javadoc destdir="javadoc-private"
+        classpath="${j2meunit};${jme.jar}"
+        access="private" >
+      <fileset dir="code" />
+    </javadoc>
+  </target>
+
+  <target name="test" depends="compile,compile-test,include-extra"
+      description="Runs j2meunit tests using j2meunit.textui.TestRunner" >
+    <java fork="yes"
+        classname="j2meunit.textui.TestRunner"
+        classpath="compiled:test-compiled:${j2meunit}">
+      <arg value="mnj.lua.METest" />
+    </java>
+  </target>
+
+  <target name="a-test" depends="compile,compile-test,include-extra"
+      description="Runs acceptance tests using j2meunit.textui.TestRunner" >
+    <java fork="yes"
+        classname="j2meunit.textui.TestRunner"
+        classpath="compiled:test-compiled:${j2meunit}">
+      <arg value="mnj.lua.AcceptTest" />
+    </java>
+  </target>
+
+  <target name="life-test" depends="compile,compile-test,include-extra"
+      description="Runs the life.lua tests using j2meunit.textui.TestRunner" >
+    <java fork="yes"
+        classname="j2meunit.textui.TestRunner"
+        classpath="compiled:test-compiled:${j2meunit}">
+      <arg value="mnj.lua.LifeTest" />
+    </java>
+  </target>
+
+  <!--
+    Runs some of the advanced acceptance tests file by file so that
+    errors in one file do not preclude execution of the next.
+    -->
+  <target name="old-advanced-test" depends="compile,compile-test,include-extra"
+      >
+    <java fork="yes"
+        classname="j2meunit.textui.TestRunner"
+        classpath="compiled:test-compiled:${j2meunit}">
+      <!--
+        big.lua requires this much memory because it creates a string of
+        size 32MiB and then tries to concatenate it.
+        -->
+      <jvmarg value="-Xmx256M" />
+      <arg value="mnj.lua.AdvancedTest" />
+    </java>
+  </target>
+
+  <target name="advanced-test"
+      depends="compile,compile-test,include-extra"
+      description="Runs the advanced acceptance tests" >
+    <java fork="yes"
+        classname="mnj.lua.Luai"
+        classpath="compiled:test-compiled:test-compiled-se" >
+      <jvmarg value="-Xmx256M" />
+      <arg value="test/mnj/lua/all.lua" />
+    </java>
+  </target>
+
+  <target name="speed" depends="compile,compile-test,include-extra"
+      description="Runs a bogus speed test using JSE" >
+    <java fork="yes"
+        classname="mnj.lua.Speed"
+        classpath="compiled:test-compiled:test-compiled-se">
+      <!--
+        Sun JDK JVM option to disable HotSpot.  Attempting to give a
+        more realistic performance ratio.
+        -->
+      <jvmarg value="-Xint" />
+    </java>
+  </target>
+
+  <target name="multitask" depends="compile,compile-test,include-extra"
+      description="Runs the MultiTask example using JSE" >
+    <java fork="yes"
+        classname="mnj.lua.MultiTask"
+        classpath="compiled:test-compiled" />
+  </target>
+
+  <target name="hook-test" depends="compile,compile-test,include-extra"
+      description="Runs the HookTest example using JSE" >
+    <java fork="yes"
+        classname="mnj.lua.HookTest"
+        classpath="compiled:test-compiled" />
+  </target>
+
+  <!-- Test to measure speed of some primitive table operations -->
+  <target name="table-test" depends="compile,compile-test,include-extra">
+    <java fork="yes"
+        classname="mnj.lua.Luai"
+        classpath="compiled:test-compiled:test-compiled-se">
+      <arg value="test/mnj/lua/getn.lua" />
+    </java>
+    <java fork="yes"
+        classname="mnj.lua.Luai"
+        classpath="compiled:test-compiled:test-compiled-se">
+      <arg value="test/mnj/lua/getnmore.lua" />
+    </java>
+    <java fork="yes"
+        classname="mnj.lua.Luai"
+        classpath="compiled:test-compiled:test-compiled-se">
+      <arg value="test/mnj/lua/putnum.lua" />
+    </java>
+  </target>
+
+</project>

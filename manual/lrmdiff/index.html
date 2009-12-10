@@ -1,0 +1,441 @@
+<?xml version="1.0" encoding="UTF-8"?>
+
+<!DOCTYPE html PUBLIC "-//W3C//DTD XHTML 1.0 Transitional//EN" "DTD/xhtml1-transitional.dtd">
+
+<html xmlns="http://www.w3.org/1999/xhtml" xml:lang="en" lang="en">
+
+<head>
+
+<title>Lua Reference Manual Differences</title>
+
+</head>
+
+<body bgcolor="#FFFFFF" text="#000000" link="#000099" vlink="#660066" alink="#FF0000">
+
+<div align="center">
+
+<p>
+Java Implementation of Lua Language
+</p>
+
+<hr />
+<h1>Lua Reference Manual Differences</h1>
+
+<address>
+<a href="mailto:drj@ravenbrook.com">David Jones</a>,
+<a href="http://www.ravenbrook.com/">Ravenbrook Limited</a>,
+2006-05-22
+</address>
+
+</div>
+
+<h2>Introduction</h2>
+
+<p>
+This document describes the differences between PUC-Rio's implementation
+of Lua and Jill.  It is structured to follow PUC-Rio's Lua Reference
+Manual, [<a href="#ref-lrm">LRM</a>].
+</p>
+
+<p>
+In general if a feature or facility isn't mentioned below then it
+is provided or an
+obvious equivalent is provided.
+</p>
+
+<h2>LRM Section 2 - The Language</h2>
+
+<p>
+Essentially identical except that in Jill source chunks are sequences of
+Unicode characters.  Similarly, in Jill strings are sequences of Unicode
+characters.  Binary chunks are sequences of bytes.
+</p>
+
+<p>
+In the current version of Jill only Lua 5.1 features are supported.
+Deprecated features from Lua 5.0 (which are not documented in the Lua
+5.1 Reference Manual) are not supported, and generally do not work.  The
+most common cases of this are attempts to use <code>table.getn</code>,
+<code>table.foreach</code>, and <code>math.mod</code>.
+</p>
+
+<p>
+Lua supports strings escapes for <code>\a</code> and <code>\v</code>
+which are not present in Java.  They map to <code>char</code>s with
+value 7 and 11 respectively.  Which is what most C implementations using
+ASCII would map them to.
+</p>
+
+<dl>
+  <dt>LRM 2.2</dt> <dd>Jill only has one sort of userdata (implemented
+  by the <code>LuaUserdata</code> class).  Therefore all facilities
+  concerned with light userdata are removed.  An alternative to using
+  light userdata is to simply use any old Java reference.  For example,
+  <em>any</em> Object can be stored in a Lua global variable, it doesn't
+  have to be a Lua value (though certain Lua operations may abort if
+  applied to such an Object).  See the implementation of
+  <code>pairs</code> in the base library for an example of this.</dd>
+  <dt>LRM 2.2.1</dt> <dd>The conversion of strings to numbers and
+  numbers to strings in Jill may be slightly different from the
+  corresponding conversions in PUC-Rio Lua.  For example, the value
+  <code>(1 - 1e-16)</code> is converted to "1" in a stock version of
+  PUC-Rio Lua 5.1 running on a reasonable quality C implementation.  In
+  Jill the same value is converted to "0.9999999999999999".  Also the
+  number <code>-0</code> is converted to "-0" in Jill, and "0" in
+  PUC-Rio.
+  Jill uses Java's underlying conversion mechanisms which are more
+  precisely specified than C.</dd>
+  <dt>LRM 2.10</dt> <dd>GC provided by JVM</dd>
+  <dt>LRM 2.10.1</td> <dd><code>__gc</code> metamethod not
+    supported.</dd>
+  <dt>LRM 2.10.2</dt> <dd><code>__mode</code> metamethod not
+    supported.</dd>
+</dl>
+
+<h2>LRM Section 3 - The Application Program Interface</h2>
+
+<p>
+Obviously different as the PUC-Rio API is in C and Jill's API is in
+Java.  Equivalent facilities are provided.  In the list below, only
+those API facilities that are significantly different from PUC-Rio are
+mentioned.  Generally the C API function <code>lua_XXX</code> becomes a
+method in the <code>Lua</code> class called <code>XXX</code> with the
+capitalisation modified to meet prevalent Java standards.
+</p>
+
+<dl>
+  <dt>LRM 3.1</dt>
+  <dd>The stack is retained but only for passing arguments
+  to functions and receiving their return values.  Methods in Jill's API
+  generally receive and return Lua objects directly as Java objects.
+  This is a big change to the style of the API compared to PUC-Rio.
+  Java code can manipulate and store Lua values directly (in local
+  variables or member instances for example) and does not need to ensure
+  that Lua values are referenced by the stack or the registry.
+  </dd>
+
+  <dt>LRM 3.4</dt>
+  <dd>C closures are replaced with instances of
+  <code>LuaJavaCallback</code> which is subclassed and instantiated by
+  clients of Jill's API.
+  </dd>
+
+  <dt>LRM 3.5</dt>
+  <dd>The registry is provided via <code>Lua.getRegistry</code>.</dd>
+
+  <dt>LRM 3.6 (Error Handling)</dt>
+  <dd>As in PUC-Rio Lua errors should be handled using
+  <code>pcall</code>.  Internally errors are generated using Java
+  exceptions, so Lua errors that occur outside of the environment
+  created by <code>pcall</code> will manifest as Java exceptions.  Most
+  of Java's internal exceptions are not caught so will be passed through
+  transparently.  A Java <code>java.lang.OutOfMemory</code> Exception is
+  caught and converted to a Lua error.
+  </dd>
+
+  <dt>lua_Alloc</dt>
+  <dd>No equivalent in Jill.</dd>
+
+  <dt>lua_atpanic</dt>
+  <dd>No equivalent in Jill.  A Lua error raised outside the environment
+  created by <code>pcall</code> will manifest as a Java exception being
+  thrown.  Client code, in Java, can catch this.</dd>
+
+  <dt>lua_CFunction</dt>
+  <dd>Replace by <code>LuaJavaCallback</code>.</dd>
+
+  <dt>lua_checkstack</dt>
+  <dd>Not provided.</dd>
+
+  <dt>lua_close</dt>
+  <dd>Provided, but does nothing (would call GC metamethods if they were
+  supported).</dd>
+
+  <dt>lua_cpcall</dt>
+  <dd>There is no direct equivalent, use <code>pcall</code> instead.</dd>
+
+  <dt>lua_gc</dt>
+  <dd>Same interface but mostly dummy functionality.</dd>
+
+  <dt>lua_getallocf</dt>
+  <dd>No equivalent.</dd>
+
+  <dt>lua_getfield</dt>
+  <dd>Same.  <code>LUA_GLOBALSINDEX</code>,
+  <code>LUA_ENVIRONINDEX</code>, <code>LUA_REGISTRYINDEX</code>, not
+  supported.  See <code>getGlobals</code>, <code>getEnviron</code>,
+  <code>getRegistry</code> instead.</dd>
+
+  <dt>lua_integer</dt>
+  <dd>Replaced by <code>int</code>.</dd>
+
+  <dt>lua_iscfunction</dt>
+  <dd>Use <code>isJavaFunction</code>.</dd>
+
+  <dt>lua_islightuserdata</dt>
+  <dd>No equivalent as Jill does not have light userdata.</dd>
+
+  <dt>lua_load</dt>
+  <dd>Similar, see <code>Lua.load</code>.</dd>
+
+  <dt>lua_newstate</dt>
+  <dd>Use constructor of <code>Lua</code>.</dd>
+
+  <dt>lua_next</dt>
+  <dd>Same, but not efficient.  Should not be used in Jill.</dd>
+
+  <dt>lua_Number</dt>
+  <dd>Modelled by <code>java.lang.Double</code>.</dd>
+
+  <dt>lua_objlen</dt>
+  <dd>Same, except that it returns 0 for userdata.</dd>
+
+  <dt>lua_pushcclosure</dt>
+  <dd>Use generic push with a <code>LuaJavaCallback</code> instance.</dd>
+
+  <dt>lua_pushcfunction</dt>
+  <dd>As for <code>lua_pushcclosure</code>.</dd>
+  
+  <dt>lua_pushfstring</dt>
+  <dd>Not provided.  Generally you can use Java's <code>+</code>
+  operator on <code>String</code> to build complex strings.</dd>
+
+  <dt>lua_pushinteger</dt>
+  <dd>Use <code>Lua.pushNumber</code>.</dd>
+
+  <dt>lua_pushlightuserdata</dt>
+  <dd>No equivalent as Jill does not have light userdata.</dd>
+
+  <dt>lua_pushlstring</dt>
+  <dd>Use <code>Lua.pushString</code>.</dd>
+
+  <dt>lua_pushvfstring</dt>
+  <dd>Not provided.</dd>
+
+  <dt>lua_Reader</dt>
+  <dd>Generally replaced with <code>java.io.InputStream</code>.</dd>
+
+  <dt>lua_remove</dt>
+  <dd>No equivalent.</dd>
+
+  <dt>lua_replace</dt>
+  <dd>No equivalent.</dd>
+
+  <dt>lua_setallocf</dt>
+  <dd>No equivalent.</dd>
+
+  <dt>lua_setfield</dt>
+  <dd>Same. See <code>lua_getfield</code>.</dd>
+
+  <dt>lua_State</dt>
+  <dd>The Jill equivalent is the <code>Lua</code> class.</dd>
+
+  <dt>lua_tocfunction</dt>
+  <dd>No equivalent (cast to <code>LuaJavaCallback</code>).</dd>
+  
+  <dt>lua_tointeger</dt>
+  <dd>Same. Conversion as per <a href="#ref-jls">JLS</a> 5.1.3</dd>
+
+  <dt>lua_tolstring</dt>
+  <dd>No equivalent.  Use <code>Lua.toString</code> instead.</dd>
+
+  <dt>lua_topointer</dt>
+  <dd>No.  Cast to <code>Object</code> if you must.</dd>
+
+  <dt>lua_tostring</dt>
+  <dd>Same.  Obviously, does not modify the stack.</dd>
+
+  <dt>lua_Writer</dt>
+  <dd>Generally replaced with <code>java.io.OutputStream</code>.</dd>
+
+  <dt>LRM 3.8 The Debug Interface</dt>
+  <dd>Most of the debug interface is not provided.  Some of it is
+  implemented and is available internally.</dd>
+
+</dl>
+
+<h2 id="section-4">LRM Section 4 - Auxiliary Library</h2>
+
+<p>
+Many of the Auxiliary Library facilities are provided (as methods on
+<code>Lua</code>).  Many of them are not necessary, for example, lots of
+string manipulation functions provided by PUC-Rio can be replaced with
+<code>StringBuffer</code> in Java.
+</p>
+
+<h2 id="section-5">LRM Section 5 - Standard Libraries</h2>
+
+<h3 id="section-5-1">LRM Section 5.1 - Basic Functions</h3>
+
+<dl>
+
+<dt>rawset</dt>
+<dd>In Jill this does not return a value.</dd>
+
+<dt>_VERSION</dt>
+<dd>Exists and is a string, as in PUC-Rio, but its contents will be
+different.</dd>
+
+</dl>
+
+<h3 id="section-5-2">LRM Section 5.2 - Coroutine Manipulation.</h3>
+
+<p>Provided.</p>
+
+<h3 id="section-5-3">LRM Section 5.3 - Modules.</h3>
+
+<p>Mostly the same. <code>package.loadlib</code> and
+<code>package.cpath</code> are not provided as they make no sense in
+JME.</p>
+
+<h3 id="section-5-4">LRM Section 5.4 - String Manipulation.</h3>
+
+<dl>
+
+<dt>string.byte</dt>
+<dd>Internal numerical codes are Unicode code positions -
+values from the Java type
+<code>char</code>.  The name is unfortunate, think of it as a 16-bit
+byte if you like.
+</dd>
+
+<dt>string.char</dt>
+<dd>As for <code>string.byte</code> the internal numerical codes are
+Unicode code positions.
+</dd>
+
+<dt>string.find</dt>
+<dd>The characters class matches for letter, etc, are not locale
+dependent, and in fact derive from
+<code>java.lang.Character.isLowercase</code> and so on.
+</dd>
+
+<dt>string.format</dt>
+<dd>Not all formats may print exactly the same as a stock PUC-Rio
+Lua.</dd>
+
+</dl>
+
+<h3 id="section-5-5">LRM Section 5.5 - Table Manipulation.</h3>
+
+<p>Provided.</p>
+
+<h3 id="section-5-6">LRM Section 5.6 - Mathematical Functions.</h3>
+
+<p>Provided to the extent that JME provided equivalent functions.</p>
+
+<h3 id="section-5-7">LRM Section 5.7 - Input and Output Facilities.</h3>
+
+<p>Not provided.</p>
+
+<h3 id="section-5-8">LRM Section 5.8 - Operating System Facilities.</h3>
+
+<p>Many functions in the OS library are not provided as their is no
+equivalent in JME.</p>
+
+<dl>
+
+<dt>os.clock</dt>
+<dd>Returns wall clock time since the class that implements the function
+was loaded (as opposed to CPU time which isn't available in JME).</dd>
+
+<dt>os.date</dt>
+<dd>Not all the conversion specifications of C's strftime are supported.
+Some that are supported will give different output.
+</dd>
+
+<dt>os.time</dt>
+<dd>The number returned is the number of milliseconds since midnight
+1970-01-01 UTC.  See <code>java.lang.System.currentTimeMillis</code> and
+so on.
+</dd>
+
+</dl>
+
+<h3 id="section-5-9">LRM Section 5.9 - The Debug Library.</h3>
+
+<p>Not provided.</p>
+
+<h2 id="section-A">A. References</h2>
+
+<table>
+
+<tr valign="top">
+    <td>[<a id="ref-lrm">LRM</a>]</td>
+    <td>Lua 5.1 Reference Manual; Roberto Ierusalimschy, Luiz Henrique
+    de Figueiredo, Waldemar Celes; &lt;URL: <a
+    href="http://www.lua.org/manual/5.1/manual.html">http://www.lua.org/manual/5.1/manual.html"</a>
+    &gt;; 2006</td>
+</tr>
+
+<tr valign="top">
+    <td>[<a id="ref-jls">JLS</a>]</td>
+    <td>"The Java Language Specification, Second Edition";
+    James Gosling,
+    Bill Joy,
+    Guy Steele,
+    Gilad Bracha; 2000-06-05;
+    &lt;URL: <a
+    href="http://java.sun.com/docs/books/jls/">http://java.sun.com/docs/books/jls/</a>&gt;
+    </td>
+</tr>
+  
+</table>
+
+<h2 id="section-B">B. Document History</h2>
+
+<table>
+
+<tr valign="top">
+    <td>2006-05-22</td>
+    <td><a href="mailto:drj@ravenbrook.com">DRJ</a></td>
+    <td>Created.</td>
+</tr>
+
+<tr valign="top">
+    <td>2006-07-06</td>
+    <td><a href="mailto:drj@ravenbrook.com">DRJ</a></td>
+    <td>More doc.</td>
+</tr>
+
+</table>
+
+<h2 id="section-C">C. Copyright and Licence</h2>
+
+<p>
+Copyright &copy; 2006 Nokia Corporation and/or its subsidiary(-ies).
+All rights reserved.
+
+Permission is hereby granted, free of charge, to any person obtaining
+a copy of this software and associated documentation files (the
+"Software"), to deal in the Software without restriction, including
+without limitation the rights to use, copy, modify, merge, publish,
+distribute, sublicense, and/or sell copies of the Software, and to
+permit persons to whom the Software is furnished to do so, subject
+to the following conditions:
+
+The above copyright notice and this permission notice shall be
+included in all copies or substantial portions of the Software.
+
+THE SOFTWARE IS PROVIDED "AS IS", WITHOUT WARRANTY OF ANY KIND,
+EXPRESS OR IMPLIED, INCLUDING BUT NOT LIMITED TO THE WARRANTIES OF
+MERCHANTABILITY, FITNESS FOR A PARTICULAR PURPOSE AND NONINFRINGEMENT.
+IN NO EVENT SHALL THE AUTHORS OR COPYRIGHT HOLDERS BE LIABLE FOR
+ANY CLAIM, DAMAGES OR OTHER LIABILITY, WHETHER IN AN ACTION OF
+CONTRACT, TORT OR OTHERWISE, ARISING FROM, OUT OF OR IN CONNECTION
+WITH THE SOFTWARE OR THE USE OR OTHER DEALINGS IN THE SOFTWARE.
+</p>
+
+<hr />
+
+<div align="center">
+<p><code>$Id: //info.ravenbrook.com/project/jili/version/1.1/manual/lrmdiff/index.html#1 $</code></p>
+
+<p>
+Java Implementation of Lua Language
+</p>
+
+</div>
+
+</body>
+</html>
